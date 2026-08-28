@@ -101,7 +101,6 @@ function openDetail(id) {
   const q = questionsData.find(item => item.ID === id);
   if (!q) return;
 
-  // 新しい問題を開く際、まずはギミックテキスト枠を強制的にリセット（非表示）にする
   const dynTextDiv = document.getElementById('detail-dynamic-text');
   dynTextDiv.style.display = 'none';
   dynTextDiv.innerHTML = '';
@@ -111,10 +110,20 @@ function openDetail(id) {
   document.getElementById('detail-cooltime').innerText = q.CoolTime;
   
   const mediaDiv = document.getElementById('detail-media');
+  mediaDiv.innerHTML = ''; // 前の問題のメディアを確実に消去
+
+  // 時間ヒント動画用の枠を先に作成しておく（最初は空）
+  const hintContainer = document.createElement('div');
+  hintContainer.id = 'hint-media-container';
+  mediaDiv.appendChild(hintContainer);
+
+  // 通常画像用の枠を作成
+  const mainMediaContainer = document.createElement('div');
   if (q.Media) {
-    mediaDiv.innerHTML = q.Media; 
+    mainMediaContainer.innerHTML = q.Media; 
+    mainMediaContainer.querySelectorAll('img').forEach(img => img.onclick = () => openModal(img.src));
+    mediaDiv.appendChild(mainMediaContainer);
     mediaDiv.style.display = 'block';
-    mediaDiv.querySelectorAll('img').forEach(img => img.onclick = () => openModal(img.src));
   } else {
     mediaDiv.style.display = 'none';
   }
@@ -173,7 +182,6 @@ function updateUI() {
     if (localStorage.getItem(`cleared_${item.ID}`)) solvedCount++;
   });
 
-  // ギミック表示のフラグ
   let showDynamic = false;
 
   if (q.Config && q.Config.type) {
@@ -227,15 +235,16 @@ function updateUI() {
       showDynamic = true;
     }
 
+    // 時間経過による動画ヒントの処理（バグ修正済み）
     if (q.Config.hintTime && now >= new Date(q.Config.hintTime) && q.Config.hintMedia) {
-      if (mediaDiv.innerHTML.indexOf(q.Config.hintMedia) === -1) {
-        mediaDiv.innerHTML = q.Config.hintMedia + mediaDiv.innerHTML;
+      const hintContainer = mediaDiv.querySelector('#hint-media-container');
+      if (hintContainer && hintContainer.innerHTML === '') {
+        hintContainer.innerHTML = q.Config.hintMedia;
         mediaDiv.style.display = 'block';
       }
     }
   }
 
-  // 設定に該当した場合は表示、それ以外は非表示にして空にする
   if (showDynamic) {
     dynTextDiv.style.display = 'block';
   } else {
