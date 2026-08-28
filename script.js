@@ -9,7 +9,7 @@ let uiTimer = null;
 
 window.onload = () => {
   if (playerName) {
-    showScreen('loading-screen'); // 最初にロード画面を出す
+    showScreen('loading-screen');
     document.getElementById('display-name').innerText = playerName;
     fetchData();
     setInterval(() => { if (playerName && !currentQuestionId) fetchData(); }, 10000);
@@ -29,17 +29,17 @@ function login() {
 }
 
 function showScreen(screenId) {
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('home-screen').style.display = 'none';
-  document.getElementById('detail-screen').style.display = 'none';
-  if(document.getElementById('loading-screen')) document.getElementById('loading-screen').style.display = 'none';
-  
-  document.getElementById(screenId).style.display = 'block';
+  ['login-screen', 'home-screen', 'detail-screen', 'loading-screen'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  const target = document.getElementById(screenId);
+  if (target) target.style.display = 'block';
 }
 
 function showHomeScreen() {
   currentQuestionId = null;
-  showScreen('home-screen');
+  showScreen('loading-screen');
   fetchData();
 }
 
@@ -52,7 +52,7 @@ async function fetchData() {
     serverTimeOffset = data.serverTime - new Date().getTime();
     
     if (!currentQuestionId) {
-      showScreen('home-screen'); // データが取れたらホーム画面へ
+      showScreen('home-screen');
       renderQuestionList();
     }
     if (!uiTimer) uiTimer = setInterval(updateUI, 1000);
@@ -95,29 +95,29 @@ function renderQuestionList() {
   });
 }
 
-// --- 問題詳細画面の構築 ---
 function openDetail(id) {
   currentQuestionId = id;
   const q = questionsData.find(item => item.ID === id);
   if (!q) return;
 
+  // 古いヒントが残らないよう、開いた瞬間に完全に初期化
   const dynTextDiv = document.getElementById('detail-dynamic-text');
-  dynTextDiv.style.display = 'none';
-  dynTextDiv.innerHTML = '';
+  if (dynTextDiv) {
+    dynTextDiv.style.display = 'none';
+    dynTextDiv.innerHTML = '';
+  }
 
   document.getElementById('detail-title').innerText = `Q${q.ID}. ${q.Title}`;
   document.getElementById('detail-description').innerHTML = q.Description.replace(/\n/g, '<br>');
   document.getElementById('detail-cooltime').innerText = q.CoolTime;
   
   const mediaDiv = document.getElementById('detail-media');
-  mediaDiv.innerHTML = ''; // 前の問題のメディアを確実に消去
+  mediaDiv.innerHTML = ''; 
 
-  // 時間ヒント動画用の枠を先に作成しておく（最初は空）
   const hintContainer = document.createElement('div');
   hintContainer.id = 'hint-media-container';
   mediaDiv.appendChild(hintContainer);
 
-  // 通常画像用の枠を作成
   const mainMediaContainer = document.createElement('div');
   if (q.Media) {
     mainMediaContainer.innerHTML = q.Media; 
@@ -139,11 +139,12 @@ function openDetail(id) {
   } else {
     normalArea.style.display = 'block';
     multiArea.style.display = 'none';
-    if(document.getElementById('answer-input')) document.getElementById('answer-input').value = '';
+    const ansInput = document.getElementById('answer-input');
+    if (ansInput) ansInput.value = '';
   }
 
   let qStat = globalStatus.questionStatus[q.ID];
-  if (qStat && qStat.solvers.includes(playerName)) {
+  if ((qStat && qStat.solvers.includes(playerName)) || localStorage.getItem(`cleared_${q.ID}`)) {
     document.getElementById('detail-title').innerText += " 【クリア済】";
     document.getElementById('submit-btn').style.display = 'none';
   } else {
@@ -177,11 +178,8 @@ function updateUI() {
   const dynTextDiv = document.getElementById('detail-dynamic-text');
   const mediaDiv = document.getElementById('detail-media');
   
-  let solvedCount = 0;
-  questionsData.forEach(item => {
-    if (localStorage.getItem(`cleared_${item.ID}`)) solvedCount++;
-  });
-
+  // サーバー上の確実な正解数データを参照するよう修正
+  let solvedCount = globalStatus.solved[playerName] || 0;
   let showDynamic = false;
 
   if (q.Config && q.Config.type) {
@@ -235,7 +233,6 @@ function updateUI() {
       showDynamic = true;
     }
 
-    // 時間経過による動画ヒントの処理（バグ修正済み）
     if (q.Config.hintTime && now >= new Date(q.Config.hintTime) && q.Config.hintMedia) {
       const hintContainer = mediaDiv.querySelector('#hint-media-container');
       if (hintContainer && hintContainer.innerHTML === '') {
@@ -245,30 +242,35 @@ function updateUI() {
     }
   }
 
-  if (showDynamic) {
-    dynTextDiv.style.display = 'block';
-  } else {
-    dynTextDiv.style.display = 'none';
-    dynTextDiv.innerHTML = '';
+  if (dynTextDiv) {
+    if (showDynamic) {
+      dynTextDiv.style.display = 'block';
+    } else {
+      dynTextDiv.style.display = 'none';
+      dynTextDiv.innerHTML = '';
+    }
   }
 
   const lastMistakeTime = localStorage.getItem(`mistake_${q.ID}`);
   const btn = document.getElementById('submit-btn');
   const msg = document.getElementById('cooltime-message');
   
-  if (lastMistakeTime && !localStorage.getItem(`cleared_${q.ID}`)) {
+  let qStat = globalStatus.questionStatus[q.ID];
+  let isCleared = (qStat && qStat.solvers.includes(playerName)) || localStorage.getItem(`cleared_${q.ID}`);
+
+  if (lastMistakeTime && !isCleared) {
     const penaltyEnd = new Date(parseInt(lastMistakeTime) + (q.CoolTime * 1000));
     if (now < penaltyEnd) {
       const remain = Math.ceil((penaltyEnd - now) / 1000);
-      btn.disabled = true;
-      msg.innerText = `クールタイム中: 残り ${remain} 秒`;
+      if (btn) btn.disabled = true;
+      if (msg) msg.innerText = `クールタイム中: 残り ${remain} 秒`;
     } else {
-      btn.disabled = false;
-      msg.innerText = "";
+      if (btn) btn.disabled = false;
+      if (msg) msg.innerText = "";
     }
   } else {
-    btn.disabled = false;
-    msg.innerText = "";
+    if (btn) btn.disabled = false;
+    if (msg) msg.innerText = "";
   }
 }
 
@@ -311,6 +313,8 @@ async function submitAnswer() {
             method: "POST", body: JSON.stringify({ playerName, questionId: currentQuestionId, answer: finalAns })
           });
           const resultFinal = await resFinal.json();
+          
+          localStorage.setItem(`cleared_${currentQuestionId}`, "true"); // 復活
           alert(resultFinal.isFirstBlood ? "1st正解です！おめでとうございます！" : "クリア！");
           showHomeScreen();
         } else {
@@ -330,6 +334,7 @@ async function submitAnswer() {
       });
       const result = await res.json();
       if (result.isCorrect) {
+        localStorage.setItem(`cleared_${currentQuestionId}`, "true"); // 復活
         alert(result.isFirstBlood ? "1st正解です！おめでとうございます！" : "正解です！");
         showHomeScreen();
       } else { handleMistake(q.ID); }
