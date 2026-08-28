@@ -95,10 +95,16 @@ function renderQuestionList() {
   });
 }
 
+// --- 問題詳細画面の構築 ---
 function openDetail(id) {
   currentQuestionId = id;
   const q = questionsData.find(item => item.ID === id);
   if (!q) return;
+
+  // 新しい問題を開く際、まずはギミックテキスト枠を強制的にリセット（非表示）にする
+  const dynTextDiv = document.getElementById('detail-dynamic-text');
+  dynTextDiv.style.display = 'none';
+  dynTextDiv.innerHTML = '';
 
   document.getElementById('detail-title').innerText = `Q${q.ID}. ${q.Title}`;
   document.getElementById('detail-description').innerHTML = q.Description.replace(/\n/g, '<br>');
@@ -124,7 +130,7 @@ function openDetail(id) {
   } else {
     normalArea.style.display = 'block';
     multiArea.style.display = 'none';
-    document.getElementById('answer-input').value = '';
+    if(document.getElementById('answer-input')) document.getElementById('answer-input').value = '';
   }
 
   let qStat = globalStatus.questionStatus[q.ID];
@@ -160,53 +166,55 @@ function updateUI() {
 
   const now = new Date(new Date().getTime() + serverTimeOffset);
   const dynTextDiv = document.getElementById('detail-dynamic-text');
+  const mediaDiv = document.getElementById('detail-media');
   
-  if (q.Config) {
-  // 1問目: 時間でヒントが増える
+  let solvedCount = 0;
+  questionsData.forEach(item => {
+    if (localStorage.getItem(`cleared_${item.ID}`)) solvedCount++;
+  });
+
+  // ギミック表示のフラグ
+  let showDynamic = false;
+
+  if (q.Config && q.Config.type) {
     if (q.Config.type === 'progressive') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
-      // 最初から1つ目のヒントは無条件で表示する
       let revealCount = 1; 
-      if (elapsedSec >= 0) {
-        // 設定時刻を過ぎたら、intervalSec（30分）ごとに表示数を+1していく
-        revealCount += Math.floor(elapsedSec / q.Config.intervalSec);
-      }  
+      if (elapsedSec >= 0) revealCount += Math.floor(elapsedSec / q.Config.intervalSec);
+      
       let html = "";
-      for (let i = 0; i < Math.min(revealCount, q.Config.hints.length); i++) { 
-        html += q.Config.hints[i] + "<br>"; 
-      }
+      for (let i = 0; i < Math.min(revealCount, q.Config.hints.length); i++) { html += q.Config.hints[i] + "<br>"; }
       dynTextDiv.innerHTML = html;
-      dynTextDiv.style.display = 'block'; // 常にブロック表示
-    } else if (q.Config.type === 'solve_dependent') {
-      const solvedCount = globalStatus.solved[playerName] || 0;
+      if (html) showDynamic = true;
+    } 
+    else if (q.Config.type === 'solve_dependent') {
       let html = `<span style="color:#aaa; font-weight:normal;">現在のあなたの正解数: ${solvedCount}</span><br><br>`;
       q.Config.hints.forEach(hint => {
         if (solvedCount >= hint.req) html += hint.text + "<br>";
         else html += `<span style="color:#777; font-size:12px;">※正解数${hint.req}で解放</span><br>`;
       });
       dynTextDiv.innerHTML = html;
-      dynTextDiv.style.display = 'block';
-    } else if (q.Config.type === 'time_dependent') {
+      showDynamic = true;
+    } 
+    else if (q.Config.type === 'time_dependent') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
       let phaseIndex = elapsedSec > 0 ? Math.floor(elapsedSec / q.Config.intervalSec) : 0;
       if (phaseIndex >= q.Config.phases.length) phaseIndex = q.Config.phases.length - 1;
       if (phaseIndex >= 0) {
         dynTextDiv.innerHTML = q.Config.phases[phaseIndex].text.replace(/\n/g, '<br>');
-        dynTextDiv.style.display = 'block';
+        showDynamic = true;
       }
-    } else if (q.Config.type === 'guerrilla') {
+    } 
+    else if (q.Config.type === 'guerrilla') {
       if (now >= new Date(q.Config.revealTime)) {
         dynTextDiv.innerText = q.Config.hiddenText;
-        dynTextDiv.style.display = 'block';
-      } else dynTextDiv.style.display = 'none';
- } else if (q.Config.type === 'mondo') {
+        showDynamic = true;
+      }
+    } 
+    else if (q.Config.type === 'mondo') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
       let revealedCount = 0;
-      
-      if (elapsedSec >= 0) {
-        // 開始時刻になったら1文字目(+1)を開け、以降intervalSecごとに開く数を増やす
-        revealedCount = Math.floor(elapsedSec / q.Config.intervalSec) + 1;
-      }
+      if (elapsedSec >= 0) revealedCount = Math.floor(elapsedSec / q.Config.intervalSec) + 1;
       
       let displayText = Array(q.Config.text.length).fill('■');
       for (let i = 0; i < revealedCount && i < q.Config.order.length; i++) {
@@ -216,16 +224,30 @@ function updateUI() {
         }
       }
       dynTextDiv.innerText = displayText.join('');
-      dynTextDiv.style.display = 'block';
+      showDynamic = true;
+    }
+
+    if (q.Config.hintTime && now >= new Date(q.Config.hintTime) && q.Config.hintMedia) {
+      if (mediaDiv.innerHTML.indexOf(q.Config.hintMedia) === -1) {
+        mediaDiv.innerHTML = q.Config.hintMedia + mediaDiv.innerHTML;
+        mediaDiv.style.display = 'block';
+      }
     }
   }
 
-  // クールタイム制御（他の問題に引き継がれないよう修正済）
+  // 設定に該当した場合は表示、それ以外は非表示にして空にする
+  if (showDynamic) {
+    dynTextDiv.style.display = 'block';
+  } else {
+    dynTextDiv.style.display = 'none';
+    dynTextDiv.innerHTML = '';
+  }
+
   const lastMistakeTime = localStorage.getItem(`mistake_${q.ID}`);
   const btn = document.getElementById('submit-btn');
   const msg = document.getElementById('cooltime-message');
   
-  if (lastMistakeTime) {
+  if (lastMistakeTime && !localStorage.getItem(`cleared_${q.ID}`)) {
     const penaltyEnd = new Date(parseInt(lastMistakeTime) + (q.CoolTime * 1000));
     if (now < penaltyEnd) {
       const remain = Math.ceil((penaltyEnd - now) / 1000);
