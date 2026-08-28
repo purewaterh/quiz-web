@@ -1,4 +1,4 @@
-const GAS_URL = "https://script.google.com/macros/s/AKfycbymTwrNhlmmO1OorM0MxcaUO5n9Jf9W66oXePOeI5GeN3Ghj6vR7TTpYbs7NN9hbU_a/exec"; 
+const GAS_URL = "https://script.google.com/macros/s/AKfycbxm48HcMLDm_A3B--XJRHkNzJ3RWeOKUPkReDTK0Di4B4aejozkBZd0CPynmhKLoYqmTw/exec"; 
 
 let playerName = localStorage.getItem('playerName');
 let questionsData = [];
@@ -64,10 +64,11 @@ function renderQuestionList() {
   questionsData.forEach(q => {
     const card = document.createElement('div');
     card.className = 'q-card';
+    if (localStorage.getItem(`cleared_${q.ID}`)) {
+      card.classList.add('cleared'); // クリア済みの色を変える
+    }
     card.innerHTML = `<strong>Q${q.ID}. ${q.Title}</strong>`;
     card.onclick = () => openDetail(q.ID);
-    
-    // ※ここにGASから取得した正解状況（status）を元にクラス（cleared等）を付与する処理を追加予定
     listDiv.appendChild(card);
   });
 }
@@ -79,19 +80,26 @@ function openDetail(id) {
   if (!q) return;
 
   document.getElementById('detail-title').innerText = `Q${q.ID}. ${q.Title}`;
-  document.getElementById('detail-description').innerText = q.Description;
+  // 改行を反映して表示
+  document.getElementById('detail-description').innerHTML = q.Description.replace(/\n/g, '<br>');
   document.getElementById('detail-cooltime').innerText = q.CoolTime;
   
   const mediaDiv = document.getElementById('detail-media');
   if (q.Media) {
-    mediaDiv.innerHTML = q.Media; // imgタグやiframeが入る想定
+    mediaDiv.innerHTML = q.Media; 
     mediaDiv.style.display = 'block';
+    
+    // 画像ポップアップ用のクリックイベント付与
+    const images = mediaDiv.querySelectorAll('img');
+    images.forEach(img => {
+      img.onclick = () => openModal(img.src);
+    });
   } else {
     mediaDiv.style.display = 'none';
   }
 
   // Lyrics(multi)か通常解答かで入力枠を切り替え
-  document.getElementById('answer-input').value = '';
+  if (document.getElementById('answer-input')) document.getElementById('answer-input').value = '';
   const normalArea = document.getElementById('normal-answer-area');
   const multiArea = document.getElementById('multi-answer-area');
   
@@ -107,7 +115,7 @@ function openDetail(id) {
     multiArea.style.display = 'none';
   }
 
-  // すでに正解しているかどうかの判定（ローカル保存ベース。後でサーバー状況と同期可）
+  // クリア判定
   if (localStorage.getItem(`cleared_${q.ID}`)) {
     document.getElementById('detail-title').innerText += " 【クリア済】";
     document.getElementById('submit-btn').style.display = 'none';
@@ -116,7 +124,7 @@ function openDetail(id) {
   }
 
   showScreen('detail-screen');
-  updateUI(); // すぐに時間を反映
+  updateUI();
 }
 
 // --- 毎秒の更新処理（時間ギミック＆クールタイム） ---
@@ -129,7 +137,7 @@ function updateUI() {
   const dynTextDiv = document.getElementById('detail-dynamic-text');
   const mediaDiv = document.getElementById('detail-media');
   
-  // プレイヤーが他問題含めて何問正解しているか数える
+  // 現在の正解数をカウント
   let solvedCount = 0;
   questionsData.forEach(item => {
     if (localStorage.getItem(`cleared_${item.ID}`)) solvedCount++;
@@ -139,7 +147,7 @@ function updateUI() {
     // 1問目: 時間でヒントが増える
     if (q.Config.type === 'progressive') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
-      let revealCount = elapsedSec > 0 ? Math.floor(elapsedSec / q.Config.intervalSec) + 1 : 0; // 開始時刻前は0
+      let revealCount = elapsedSec > 0 ? Math.floor(elapsedSec / q.Config.intervalSec) + 1 : 0; 
       let html = "";
       for (let i = 0; i < Math.min(revealCount, q.Config.hints.length); i++) {
         html += q.Config.hints[i] + "<br>";
@@ -147,7 +155,6 @@ function updateUI() {
       dynTextDiv.innerHTML = html;
       dynTextDiv.style.display = html ? 'block' : 'none';
     }
-    
     // 8問目: 他問題の正解数でヒントが増える
     else if (q.Config.type === 'solve_dependent') {
       let html = `<span style="color:#333; font-weight:normal;">現在のあなたの正解数: ${solvedCount}</span><br><br>`;
@@ -161,19 +168,16 @@ function updateUI() {
       dynTextDiv.innerHTML = html;
       dynTextDiv.style.display = 'block';
     }
-
     // 13問目: 時間で条件が消える（変わる）
     else if (q.Config.type === 'time_dependent') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
       let phaseIndex = elapsedSec > 0 ? Math.floor(elapsedSec / q.Config.intervalSec) : 0;
       if (phaseIndex >= q.Config.phases.length) phaseIndex = q.Config.phases.length - 1;
       if (phaseIndex >= 0) {
-        // \n を <br> に変換して表示
         dynTextDiv.innerHTML = q.Config.phases[phaseIndex].text.replace(/\n/g, '<br>');
         dynTextDiv.style.display = 'block';
       }
     }
-
     // 5問目用: 指定時間以降に動画ヒントを公開
     if (q.Config.hintTime && now >= new Date(q.Config.hintTime) && q.Config.hintMedia) {
       if (mediaDiv.innerHTML.indexOf(q.Config.hintMedia) === -1) {
@@ -181,8 +185,7 @@ function updateUI() {
         mediaDiv.style.display = 'block';
       }
     }
-
-    // 以前実装した Q-Real と Mondo の処理はそのまま残す
+    // 3問目用: Q-Real
     if (q.Config.type === 'guerrilla') {
       if (now >= new Date(q.Config.revealTime)) {
         dynTextDiv.innerText = q.Config.hiddenText;
@@ -190,7 +193,9 @@ function updateUI() {
       } else {
         dynTextDiv.style.display = 'none';
       }
-    } else if (q.Config.type === 'mondo') {
+    } 
+    // 2, 7, 10問目用: Mondo
+    else if (q.Config.type === 'mondo') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
       if (elapsedSec > 0) {
         const revealedCount = Math.floor(elapsedSec / q.Config.intervalSec);
@@ -213,23 +218,6 @@ function updateUI() {
   const msg = document.getElementById('cooltime-message');
   
   if (lastMistakeTime && !localStorage.getItem(`cleared_${q.ID}`)) {
-    const penaltyEnd = new Date(parseInt(lastMistakeTime) + (q.CoolTime * 1000));
-    if (now < penaltyEnd) {
-      const remain = Math.ceil((penaltyEnd - now) / 1000);
-      btn.disabled = true;
-      msg.innerText = `クールタイム中: 残り ${remain} 秒`;
-    } else {
-      btn.disabled = false;
-      msg.innerText = "";
-    }
-  }
-}
-  // クールタイム制御
-  const lastMistakeTime = localStorage.getItem(`mistake_${q.ID}`);
-  const btn = document.getElementById('submit-btn');
-  const msg = document.getElementById('cooltime-message');
-  
-  if (lastMistakeTime) {
     const penaltyEnd = new Date(parseInt(lastMistakeTime) + (q.CoolTime * 1000));
     if (now < penaltyEnd) {
       const remain = Math.ceil((penaltyEnd - now) / 1000);
@@ -281,9 +269,10 @@ async function submitAnswer() {
       showHomeScreen();
     } else {
       alert("不正解...");
-      // 現在時刻を誤答時刻として記録（クールタイム開始）
       localStorage.setItem(`mistake_${currentQuestionId}`, new Date().getTime());
-      document.getElementById('answer-input').value = '';
+      if (document.getElementById('answer-input')) {
+        document.getElementById('answer-input').value = '';
+      }
     }
   } catch (e) {
     alert("通信エラーが発生しました");
@@ -293,4 +282,16 @@ async function submitAnswer() {
     btn.innerText = "解答する";
     updateUI();
   }
+}
+
+// --- 画像モーダルの制御 ---
+function openModal(imgSrc) {
+  const modal = document.getElementById('image-modal');
+  const modalImg = document.getElementById('modal-img');
+  modalImg.src = imgSrc;
+  modal.style.display = "block";
+}
+
+function closeModal() {
+  document.getElementById('image-modal').style.display = "none";
 }
