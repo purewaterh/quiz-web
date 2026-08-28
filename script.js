@@ -9,10 +9,9 @@ let uiTimer = null;
 
 window.onload = () => {
   if (playerName) {
-    showScreen('home-screen');
+    showScreen('loading-screen'); // 最初にロード画面を出す
     document.getElementById('display-name').innerText = playerName;
     fetchData();
-    // 10秒に1回、他人の解答状況を裏で取得して反映
     setInterval(() => { if (playerName && !currentQuestionId) fetchData(); }, 10000);
   } else {
     showScreen('login-screen');
@@ -25,7 +24,7 @@ function login() {
   playerName = nameInput;
   localStorage.setItem('playerName', playerName);
   document.getElementById('display-name').innerText = playerName;
-  showScreen('home-screen');
+  showScreen('loading-screen');
   fetchData();
 }
 
@@ -33,6 +32,8 @@ function showScreen(screenId) {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('home-screen').style.display = 'none';
   document.getElementById('detail-screen').style.display = 'none';
+  if(document.getElementById('loading-screen')) document.getElementById('loading-screen').style.display = 'none';
+  
   document.getElementById(screenId).style.display = 'block';
 }
 
@@ -50,7 +51,10 @@ async function fetchData() {
     globalStatus = data.status;
     serverTimeOffset = data.serverTime - new Date().getTime();
     
-    if (!currentQuestionId) renderQuestionList();
+    if (!currentQuestionId) {
+      showScreen('home-screen'); // データが取れたらホーム画面へ
+      renderQuestionList();
+    }
     if (!uiTimer) uiTimer = setInterval(updateUI, 1000);
   } catch (error) {
     console.log("バックグラウンド更新待機中...");
