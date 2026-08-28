@@ -1,17 +1,19 @@
-const GAS_URL = "https://script.google.com/macros/s/AKfycby1R7TIQxkTQ1L1NTOVQe8rhkfXwu6d0VMw74tmRFwDh_RO6NZ7SJkKcW6ErwOKSR_k2w/exec"; 
+const GAS_URL = "https://script.google.com/macros/s/AKfycbxUdQIHdh82slcCDoIfc1C1Vsjve_j1QWmp6CsOO8TygT5x-_3qgivpSqSXXphGRuhP3g/exec"; 
 
 let playerName = localStorage.getItem('playerName');
 let questionsData = [];
+let globalStatus = { firstBlood: {}, solved: {}, questionStatus: {} };
 let currentQuestionId = null;
 let serverTimeOffset = 0; 
 let uiTimer = null;
 
-// --- 初期化処理 ---
 window.onload = () => {
   if (playerName) {
     showScreen('home-screen');
     document.getElementById('display-name').innerText = playerName;
     fetchData();
+    // 10秒に1回、他人の解答状況を裏で取得して反映
+    setInterval(() => { if (playerName && !currentQuestionId) fetchData(); }, 10000);
   } else {
     showScreen('login-screen');
   }
@@ -37,50 +39,64 @@ function showScreen(screenId) {
 function showHomeScreen() {
   currentQuestionId = null;
   showScreen('home-screen');
-  renderQuestionList();
+  fetchData();
 }
 
-// --- データ取得と表示 ---
 async function fetchData() {
   try {
     const res = await fetch(GAS_URL);
     const data = await res.json();
     questionsData = data.questions;
+    globalStatus = data.status;
     serverTimeOffset = data.serverTime - new Date().getTime();
     
-    renderQuestionList();
-    
-    if (uiTimer) clearInterval(uiTimer);
-    uiTimer = setInterval(updateUI, 1000);
+    if (!currentQuestionId) renderQuestionList();
+    if (!uiTimer) uiTimer = setInterval(updateUI, 1000);
   } catch (error) {
-    alert("データの読み込みに失敗しました。再読み込みしてください。");
+    console.log("バックグラウンド更新待機中...");
   }
 }
 
 function renderQuestionList() {
+  document.getElementById('first-blood-count').innerText = globalStatus.firstBlood[playerName] || 0;
+  document.getElementById('solve-count').innerText = globalStatus.solved[playerName] || 0;
+  
   const listDiv = document.getElementById('question-list');
   listDiv.innerHTML = '';
   
   questionsData.forEach(q => {
     const card = document.createElement('div');
     card.className = 'q-card';
-    if (localStorage.getItem(`cleared_${q.ID}`)) {
-      card.classList.add('cleared'); // クリア済みの色を変える
+    
+    let qStat = globalStatus.questionStatus[q.ID];
+    if (qStat) {
+      if (qStat.fbPlayer === playerName) {
+        card.classList.add('first-blood');
+        card.innerHTML = `<strong>Q${q.ID}. ${q.Title} 👑</strong>`;
+      } else if (qStat.solvers.includes(playerName)) {
+        card.classList.add('cleared');
+        card.innerHTML = `<strong>Q${q.ID}. ${q.Title} ✅</strong>`;
+      } else if (qStat.solvers.length > 0) {
+        card.classList.add('others-cleared');
+        card.innerHTML = `<strong>Q${q.ID}. ${q.Title} 👥</strong>`;
+      } else {
+        card.innerHTML = `<strong>Q${q.ID}. ${q.Title}</strong>`;
+      }
+    } else {
+      card.innerHTML = `<strong>Q${q.ID}. ${q.Title}</strong>`;
     }
-    card.innerHTML = `<strong>Q${q.ID}. ${q.Title}</strong>`;
+    
     card.onclick = () => openDetail(q.ID);
     listDiv.appendChild(card);
   });
 }
 
-// --- 問題詳細画面の構築 ---
 function openDetail(id) {
   currentQuestionId = id;
   const q = questionsData.find(item => item.ID === id);
   if (!q) return;
 
   document.getElementById('detail-title').innerText = `Q${q.ID}. ${q.Title}`;
-  // 改行を反映して表示
   document.getElementById('detail-description').innerHTML = q.Description.replace(/\n/g, '<br>');
   document.getElementById('detail-cooltime').innerText = q.CoolTime;
   
@@ -88,35 +104,27 @@ function openDetail(id) {
   if (q.Media) {
     mediaDiv.innerHTML = q.Media; 
     mediaDiv.style.display = 'block';
-    
-    // 画像ポップアップ用のクリックイベント付与
-    const images = mediaDiv.querySelectorAll('img');
-    images.forEach(img => {
-      img.onclick = () => openModal(img.src);
-    });
+    mediaDiv.querySelectorAll('img').forEach(img => img.onclick = () => openModal(img.src));
   } else {
     mediaDiv.style.display = 'none';
   }
 
-  // Lyrics(multi)か通常解答かで入力枠を切り替え
-  if (document.getElementById('answer-input')) document.getElementById('answer-input').value = '';
   const normalArea = document.getElementById('normal-answer-area');
   const multiArea = document.getElementById('multi-answer-area');
   
   if (q.Config && q.Config.type === 'multi') {
     normalArea.style.display = 'none';
     multiArea.style.display = 'block';
-    multiArea.innerHTML = '';
-    for (let i = 0; i < q.Config.required; i++) {
-      multiArea.innerHTML += `<input type="text" id="multi-ans-${i}" class="multi-input" placeholder="${i+1}人目">`;
-    }
+    document.getElementById('multi-single-input').value = '';
+    renderMultiProgress(q.ID, q.Config.required);
   } else {
     normalArea.style.display = 'block';
     multiArea.style.display = 'none';
+    document.getElementById('answer-input').value = '';
   }
 
-  // クリア判定
-  if (localStorage.getItem(`cleared_${q.ID}`)) {
+  let qStat = globalStatus.questionStatus[q.ID];
+  if (qStat && qStat.solvers.includes(playerName)) {
     document.getElementById('detail-title').innerText += " 【クリア済】";
     document.getElementById('submit-btn').style.display = 'none';
   } else {
@@ -127,7 +135,20 @@ function openDetail(id) {
   updateUI();
 }
 
-// --- 毎秒の更新処理（時間ギミック＆クールタイム） ---
+function renderMultiProgress(qId, required) {
+  const solvedGroups = JSON.parse(localStorage.getItem(`multi_${qId}`) || "[]");
+  const solvedNames = JSON.parse(localStorage.getItem(`multi_names_${qId}`) || "[]");
+  document.getElementById('multi-progress').innerText = `現在の正解: ${solvedGroups.length} / ${required} 人`;
+  
+  const listDiv = document.getElementById('multi-solved-list');
+  if (solvedNames.length > 0) {
+    listDiv.innerHTML = "正解済み: " + solvedNames.join(', ');
+    listDiv.style.display = 'block';
+  } else {
+    listDiv.style.display = 'none';
+  }
+}
+
 function updateUI() {
   if (!currentQuestionId) return;
   const q = questionsData.find(item => item.ID === currentQuestionId);
@@ -135,41 +156,25 @@ function updateUI() {
 
   const now = new Date(new Date().getTime() + serverTimeOffset);
   const dynTextDiv = document.getElementById('detail-dynamic-text');
-  const mediaDiv = document.getElementById('detail-media');
   
-  // 現在の正解数をカウント
-  let solvedCount = 0;
-  questionsData.forEach(item => {
-    if (localStorage.getItem(`cleared_${item.ID}`)) solvedCount++;
-  });
-
   if (q.Config) {
-    // 1問目: 時間でヒントが増える
     if (q.Config.type === 'progressive') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
       let revealCount = elapsedSec > 0 ? Math.floor(elapsedSec / q.Config.intervalSec) + 1 : 0; 
       let html = "";
-      for (let i = 0; i < Math.min(revealCount, q.Config.hints.length); i++) {
-        html += q.Config.hints[i] + "<br>";
-      }
+      for (let i = 0; i < Math.min(revealCount, q.Config.hints.length); i++) { html += q.Config.hints[i] + "<br>"; }
       dynTextDiv.innerHTML = html;
       dynTextDiv.style.display = html ? 'block' : 'none';
-    }
-    // 8問目: 他問題の正解数でヒントが増える
-    else if (q.Config.type === 'solve_dependent') {
-      let html = `<span style="color:#333; font-weight:normal;">現在のあなたの正解数: ${solvedCount}</span><br><br>`;
+    } else if (q.Config.type === 'solve_dependent') {
+      const solvedCount = globalStatus.solved[playerName] || 0;
+      let html = `<span style="color:#aaa; font-weight:normal;">現在のあなたの正解数: ${solvedCount}</span><br><br>`;
       q.Config.hints.forEach(hint => {
-        if (solvedCount >= hint.req) {
-          html += hint.text + "<br>";
-        } else {
-          html += `<span style="color:#999; font-size:12px;">※正解数${hint.req}で解放</span><br>`;
-        }
+        if (solvedCount >= hint.req) html += hint.text + "<br>";
+        else html += `<span style="color:#777; font-size:12px;">※正解数${hint.req}で解放</span><br>`;
       });
       dynTextDiv.innerHTML = html;
       dynTextDiv.style.display = 'block';
-    }
-    // 13問目: 時間で条件が消える（変わる）
-    else if (q.Config.type === 'time_dependent') {
+    } else if (q.Config.type === 'time_dependent') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
       let phaseIndex = elapsedSec > 0 ? Math.floor(elapsedSec / q.Config.intervalSec) : 0;
       if (phaseIndex >= q.Config.phases.length) phaseIndex = q.Config.phases.length - 1;
@@ -177,25 +182,12 @@ function updateUI() {
         dynTextDiv.innerHTML = q.Config.phases[phaseIndex].text.replace(/\n/g, '<br>');
         dynTextDiv.style.display = 'block';
       }
-    }
-    // 5問目用: 指定時間以降に動画ヒントを公開
-    if (q.Config.hintTime && now >= new Date(q.Config.hintTime) && q.Config.hintMedia) {
-      if (mediaDiv.innerHTML.indexOf(q.Config.hintMedia) === -1) {
-        mediaDiv.innerHTML = q.Config.hintMedia + mediaDiv.innerHTML;
-        mediaDiv.style.display = 'block';
-      }
-    }
-    // 3問目用: Q-Real
-    if (q.Config.type === 'guerrilla') {
+    } else if (q.Config.type === 'guerrilla') {
       if (now >= new Date(q.Config.revealTime)) {
         dynTextDiv.innerText = q.Config.hiddenText;
         dynTextDiv.style.display = 'block';
-      } else {
-        dynTextDiv.style.display = 'none';
-      }
-    } 
-    // 2, 7, 10問目用: Mondo
-    else if (q.Config.type === 'mondo') {
+      } else dynTextDiv.style.display = 'none';
+    } else if (q.Config.type === 'mondo') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
       if (elapsedSec > 0) {
         const revealedCount = Math.floor(elapsedSec / q.Config.intervalSec);
@@ -206,18 +198,16 @@ function updateUI() {
         }
         dynTextDiv.innerText = displayText.join('');
         dynTextDiv.style.display = 'block';
-      } else {
-        dynTextDiv.style.display = 'none';
-      }
+      } else dynTextDiv.style.display = 'none';
     }
   }
 
-  // クールタイム制御
+  // クールタイム制御（他の問題に引き継がれないよう修正済）
   const lastMistakeTime = localStorage.getItem(`mistake_${q.ID}`);
   const btn = document.getElementById('submit-btn');
   const msg = document.getElementById('cooltime-message');
   
-  if (lastMistakeTime && !localStorage.getItem(`cleared_${q.ID}`)) {
+  if (lastMistakeTime) {
     const penaltyEnd = new Date(parseInt(lastMistakeTime) + (q.CoolTime * 1000));
     if (now < penaltyEnd) {
       const remain = Math.ceil((penaltyEnd - now) / 1000);
@@ -227,71 +217,87 @@ function updateUI() {
       btn.disabled = false;
       msg.innerText = "";
     }
+  } else {
+    btn.disabled = false;
+    msg.innerText = "";
   }
 }
 
-// --- 解答の送信 ---
 async function submitAnswer() {
   const q = questionsData.find(item => item.ID === currentQuestionId);
-  let answerStr = "";
-
+  const btn = document.getElementById('submit-btn');
+  
   if (q.Config && q.Config.type === 'multi') {
-    let ansArray = [];
-    for (let i = 0; i < q.Config.required; i++) {
-      ansArray.push(document.getElementById(`multi-ans-${i}`).value.trim());
-    }
-    answerStr = ansArray.join(',');
-  } else {
-    answerStr = document.getElementById('answer-input').value.trim();
-  }
-
-  if (!answerStr || answerStr === Array(q.Config?.required || 1).fill('').join(',')) {
-    return alert("解答を入力してください");
-  }
-
-  document.getElementById('submit-btn').disabled = true;
-  document.getElementById('submit-btn').innerText = "送信中...";
-
-  try {
-    const res = await fetch(GAS_URL, {
-      method: "POST",
-      body: JSON.stringify({
-        playerName: playerName,
-        questionId: currentQuestionId,
-        answer: answerStr
-      })
-    });
-    const result = await res.json();
+    const singleAns = document.getElementById('multi-single-input').value.trim();
+    if (!singleAns) return;
     
-    if (result.isCorrect) {
-      alert("正解です！");
-      localStorage.setItem(`cleared_${currentQuestionId}`, "true");
-      showHomeScreen();
-    } else {
-      alert("不正解...");
-      localStorage.setItem(`mistake_${currentQuestionId}`, new Date().getTime());
-      if (document.getElementById('answer-input')) {
-        document.getElementById('answer-input').value = '';
-      }
-    }
-  } catch (e) {
-    alert("通信エラーが発生しました");
-  } finally {
-    const btn = document.getElementById('submit-btn');
-    btn.disabled = false;
-    btn.innerText = "解答する";
-    updateUI();
+    btn.disabled = true;
+    try {
+      const res = await fetch(GAS_URL, {
+        method: "POST", body: JSON.stringify({ playerName, questionId: currentQuestionId, answer: singleAns, checkPart: true })
+      });
+      const result = await res.json();
+      
+      if (result.isCorrect) {
+        let solvedGroups = JSON.parse(localStorage.getItem(`multi_${q.ID}`) || "[]");
+        let solvedNames = JSON.parse(localStorage.getItem(`multi_names_${q.ID}`) || "[]");
+        
+        if (solvedGroups.includes(result.matchedGroup)) {
+          alert("既に解答済みのメンバーです！");
+          btn.disabled = false;
+          return;
+        }
+        
+        solvedGroups.push(result.matchedGroup);
+        solvedNames.push(singleAns);
+        localStorage.setItem(`multi_${q.ID}`, JSON.stringify(solvedGroups));
+        localStorage.setItem(`multi_names_${q.ID}`, JSON.stringify(solvedNames));
+        
+        renderMultiProgress(q.ID, q.Config.required);
+        document.getElementById('multi-single-input').value = '';
+        
+        if (solvedGroups.length >= q.Config.required) {
+          const finalAns = solvedNames.join(',');
+          const resFinal = await fetch(GAS_URL, {
+            method: "POST", body: JSON.stringify({ playerName, questionId: currentQuestionId, answer: finalAns })
+          });
+          const resultFinal = await resFinal.json();
+          alert(resultFinal.isFirstBlood ? "1st正解です！おめでとうございます！" : "クリア！");
+          showHomeScreen();
+        } else {
+           alert("正解！");
+           btn.disabled = false;
+        }
+      } else { handleMistake(q.ID); }
+    } catch (e) { alert("通信エラーが発生しました"); btn.disabled = false; }
+  } else {
+    const answerStr = document.getElementById('answer-input').value.trim();
+    if (!answerStr) return;
+    btn.disabled = true;
+    
+    try {
+      const res = await fetch(GAS_URL, {
+        method: "POST", body: JSON.stringify({ playerName, questionId: currentQuestionId, answer: answerStr })
+      });
+      const result = await res.json();
+      if (result.isCorrect) {
+        alert(result.isFirstBlood ? "1st正解です！おめでとうございます！" : "正解です！");
+        showHomeScreen();
+      } else { handleMistake(q.ID); }
+    } catch (e) { alert("通信エラーが発生しました"); btn.disabled = false; }
   }
 }
 
-// --- 画像モーダルの制御 ---
-function openModal(imgSrc) {
-  const modal = document.getElementById('image-modal');
-  const modalImg = document.getElementById('modal-img');
-  modalImg.src = imgSrc;
-  modal.style.display = "block";
+function handleMistake(id) {
+  alert("不正解...");
+  localStorage.setItem(`mistake_${id}`, new Date().getTime());
+  if (document.getElementById('answer-input')) document.getElementById('answer-input').value = '';
+  if (document.getElementById('multi-single-input')) document.getElementById('multi-single-input').value = '';
+  updateUI();
 }
 
-function closeModal() {
-  document.getElementById('image-modal').style.display = "none";
+function openModal(imgSrc) {
+  document.getElementById('modal-img').src = imgSrc;
+  document.getElementById('image-modal').style.display = "block";
 }
+function closeModal() { document.getElementById('image-modal').style.display = "none"; }
