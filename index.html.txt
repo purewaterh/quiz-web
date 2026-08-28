@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>クイズゲーム</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ① ログイン画面 -->
+  <div id="login-screen" class="screen">
+    <h1>クイズゲームへようこそ</h1>
+    <p>ニックネームを入力して参加してください。<br>※一度決めると変更できません。</p>
+    <input type="text" id="nickname-input" placeholder="ニックネーム">
+    <button onclick="login()">参加する</button>
+  </div>
+
+  <!-- ② ホーム画面（問題一覧） -->
+  <div id="home-screen" class="screen" style="display: none;">
+    <div class="header-status">
+      <span id="display-name"></span>
+      <span>1st正解: <span id="first-blood-count">0</span> / 正解: <span id="solve-count">0</span></span>
+    </div>
+    <h2>問題一覧</h2>
+    <div id="question-list">
+      <!-- ここにJSで問題が追加されます -->
+    </div>
+  </div>
+
+  <!-- ③ 問題詳細画面 -->
+  <div id="detail-screen" class="screen" style="display: none;">
+    <button class="back-btn" onclick="showHomeScreen()">← ホームに戻る</button>
+    
+    <h2 id="detail-title"></h2>
+    
+    <!-- 問題文や時間経過で開くテキスト -->
+    <div id="detail-description" class="question-box"></div>
+    <div id="detail-dynamic-text" class="question-box" style="display: none; font-weight: bold; color: #d32f2f;"></div>
+    
+    <!-- 画像や動画の表示枠 -->
+    <div id="detail-media" style="display: none; margin: 15px 0;"></div>
+
+    <div class="answer-section">
+      <p>クールタイム: <span id="detail-cooltime"></span>秒</p>
+      
+      <!-- 通常解答欄 -->
+      <div id="normal-answer-area">
+        <input type="text" id="answer-input" placeholder="解答を入力">
+      </div>
+      
+      <!-- Lyrics用 複数解答欄（JSで動的に表示） -->
+      <div id="multi-answer-area" style="display: none;">
+        <!-- JSでinputが生成されます -->
+      </div>
+      
+      <button id="submit-btn" onclick="submitAnswer()">解答する</button>
+      <p id="cooltime-message" class="error-text"></p>
+    </div>
+
+    <button class="back-btn" onclick="showHomeScreen()" style="margin-top: 30px;">← ホームに戻る</button>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
