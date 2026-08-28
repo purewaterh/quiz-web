@@ -127,22 +127,71 @@ function updateUI() {
 
   const now = new Date(new Date().getTime() + serverTimeOffset);
   const dynTextDiv = document.getElementById('detail-dynamic-text');
+  const mediaDiv = document.getElementById('detail-media');
   
-  // ギミック表示制御
+  // プレイヤーが他問題含めて何問正解しているか数える
+  let solvedCount = 0;
+  questionsData.forEach(item => {
+    if (localStorage.getItem(`cleared_${item.ID}`)) solvedCount++;
+  });
+
   if (q.Config) {
+    // 1問目: 時間でヒントが増える
+    if (q.Config.type === 'progressive') {
+      const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
+      let revealCount = elapsedSec > 0 ? Math.floor(elapsedSec / q.Config.intervalSec) + 1 : 0; // 開始時刻前は0
+      let html = "";
+      for (let i = 0; i < Math.min(revealCount, q.Config.hints.length); i++) {
+        html += q.Config.hints[i] + "<br>";
+      }
+      dynTextDiv.innerHTML = html;
+      dynTextDiv.style.display = html ? 'block' : 'none';
+    }
+    
+    // 8問目: 他問題の正解数でヒントが増える
+    else if (q.Config.type === 'solve_dependent') {
+      let html = `<span style="color:#333; font-weight:normal;">現在のあなたの正解数: ${solvedCount}</span><br><br>`;
+      q.Config.hints.forEach(hint => {
+        if (solvedCount >= hint.req) {
+          html += hint.text + "<br>";
+        } else {
+          html += `<span style="color:#999; font-size:12px;">※正解数${hint.req}で解放</span><br>`;
+        }
+      });
+      dynTextDiv.innerHTML = html;
+      dynTextDiv.style.display = 'block';
+    }
+
+    // 13問目: 時間で条件が消える（変わる）
+    else if (q.Config.type === 'time_dependent') {
+      const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
+      let phaseIndex = elapsedSec > 0 ? Math.floor(elapsedSec / q.Config.intervalSec) : 0;
+      if (phaseIndex >= q.Config.phases.length) phaseIndex = q.Config.phases.length - 1;
+      if (phaseIndex >= 0) {
+        // \n を <br> に変換して表示
+        dynTextDiv.innerHTML = q.Config.phases[phaseIndex].text.replace(/\n/g, '<br>');
+        dynTextDiv.style.display = 'block';
+      }
+    }
+
+    // 5問目用: 指定時間以降に動画ヒントを公開
+    if (q.Config.hintTime && now >= new Date(q.Config.hintTime) && q.Config.hintMedia) {
+      if (mediaDiv.innerHTML.indexOf(q.Config.hintMedia) === -1) {
+        mediaDiv.innerHTML = q.Config.hintMedia + mediaDiv.innerHTML;
+        mediaDiv.style.display = 'block';
+      }
+    }
+
+    // 以前実装した Q-Real と Mondo の処理はそのまま残す
     if (q.Config.type === 'guerrilla') {
-      const revealTime = new Date(q.Config.revealTime);
-      if (now >= revealTime) {
+      if (now >= new Date(q.Config.revealTime)) {
         dynTextDiv.innerText = q.Config.hiddenText;
         dynTextDiv.style.display = 'block';
       } else {
         dynTextDiv.style.display = 'none';
       }
-    } 
-    else if (q.Config.type === 'mondo') {
-      const startTime = new Date(q.Config.startTime);
-      const elapsedSec = Math.floor((now - startTime) / 1000);
-      
+    } else if (q.Config.type === 'mondo') {
+      const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
       if (elapsedSec > 0) {
         const revealedCount = Math.floor(elapsedSec / q.Config.intervalSec);
         let displayText = Array(q.Config.text.length).fill('■');
@@ -153,11 +202,28 @@ function updateUI() {
         dynTextDiv.innerText = displayText.join('');
         dynTextDiv.style.display = 'block';
       } else {
-        dynTextDiv.style.display = 'none'; // まだ開始していない
+        dynTextDiv.style.display = 'none';
       }
     }
   }
 
+  // クールタイム制御
+  const lastMistakeTime = localStorage.getItem(`mistake_${q.ID}`);
+  const btn = document.getElementById('submit-btn');
+  const msg = document.getElementById('cooltime-message');
+  
+  if (lastMistakeTime && !localStorage.getItem(`cleared_${q.ID}`)) {
+    const penaltyEnd = new Date(parseInt(lastMistakeTime) + (q.CoolTime * 1000));
+    if (now < penaltyEnd) {
+      const remain = Math.ceil((penaltyEnd - now) / 1000);
+      btn.disabled = true;
+      msg.innerText = `クールタイム中: 残り ${remain} 秒`;
+    } else {
+      btn.disabled = false;
+      msg.innerText = "";
+    }
+  }
+}
   // クールタイム制御
   const lastMistakeTime = localStorage.getItem(`mistake_${q.ID}`);
   const btn = document.getElementById('submit-btn');
