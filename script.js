@@ -1,4 +1,4 @@
-const GAS_URL = "https://script.google.com/macros/s/AKfycbxm48HcMLDm_A3B--XJRHkNzJ3RWeOKUPkReDTK0Di4B4aejozkBZd0CPynmhKLoYqmTw/exec"; 
+const GAS_URL = "https://script.google.com/macros/s/AKfycby1R7TIQxkTQ1L1NTOVQe8rhkfXwu6d0VMw74tmRFwDh_RO6NZ7SJkKcW6ErwOKSR_k2w/exec"; 
 
 let playerName = localStorage.getItem('playerName');
 let questionsData = [];
