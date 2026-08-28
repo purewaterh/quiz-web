@@ -162,13 +162,21 @@ function updateUI() {
   const dynTextDiv = document.getElementById('detail-dynamic-text');
   
   if (q.Config) {
+  // 1問目: 時間でヒントが増える
     if (q.Config.type === 'progressive') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
-      let revealCount = elapsedSec > 0 ? Math.floor(elapsedSec / q.Config.intervalSec) + 1 : 0; 
+      // 最初から1つ目のヒントは無条件で表示する
+      let revealCount = 1; 
+      if (elapsedSec >= 0) {
+        // 設定時刻を過ぎたら、intervalSec（30分）ごとに表示数を+1していく
+        revealCount += Math.floor(elapsedSec / q.Config.intervalSec);
+      }  
       let html = "";
-      for (let i = 0; i < Math.min(revealCount, q.Config.hints.length); i++) { html += q.Config.hints[i] + "<br>"; }
+      for (let i = 0; i < Math.min(revealCount, q.Config.hints.length); i++) { 
+        html += q.Config.hints[i] + "<br>"; 
+      }
       dynTextDiv.innerHTML = html;
-      dynTextDiv.style.display = html ? 'block' : 'none';
+      dynTextDiv.style.display = 'block'; // 常にブロック表示
     } else if (q.Config.type === 'solve_dependent') {
       const solvedCount = globalStatus.solved[playerName] || 0;
       let html = `<span style="color:#aaa; font-weight:normal;">現在のあなたの正解数: ${solvedCount}</span><br><br>`;
@@ -191,18 +199,24 @@ function updateUI() {
         dynTextDiv.innerText = q.Config.hiddenText;
         dynTextDiv.style.display = 'block';
       } else dynTextDiv.style.display = 'none';
-    } else if (q.Config.type === 'mondo') {
+ } else if (q.Config.type === 'mondo') {
       const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
-      if (elapsedSec > 0) {
-        const revealedCount = Math.floor(elapsedSec / q.Config.intervalSec);
-        let displayText = Array(q.Config.text.length).fill('■');
-        for (let i = 0; i < revealedCount && i < q.Config.order.length; i++) {
-          const charIndex = q.Config.order[i];
+      let revealedCount = 0;
+      
+      if (elapsedSec >= 0) {
+        // 開始時刻になったら1文字目(+1)を開け、以降intervalSecごとに開く数を増やす
+        revealedCount = Math.floor(elapsedSec / q.Config.intervalSec) + 1;
+      }
+      
+      let displayText = Array(q.Config.text.length).fill('■');
+      for (let i = 0; i < revealedCount && i < q.Config.order.length; i++) {
+        const charIndex = q.Config.order[i];
+        if (charIndex !== undefined && charIndex < displayText.length) {
           displayText[charIndex] = q.Config.text[charIndex];
         }
-        dynTextDiv.innerText = displayText.join('');
-        dynTextDiv.style.display = 'block';
-      } else dynTextDiv.style.display = 'none';
+      }
+      dynTextDiv.innerText = displayText.join('');
+      dynTextDiv.style.display = 'block';
     }
   }
 
