@@ -37,9 +37,19 @@ function showScreen(screenId) {
   if (target) target.style.display = 'block';
 }
 
+// 修正後
 function showHomeScreen() {
   currentQuestionId = null;
-  showScreen('loading-screen');
+  
+  // ローディング画面を挟まず、一瞬でホーム画面を表示する
+  showScreen('home-screen');
+  
+  // すでに手元にあるデータを使って、即座にリストを描画する
+  if (questionsData.length > 0) {
+    renderQuestionList();
+  }
+  
+  // 画面が切り替わった裏側で、こっそり最新データを取得しにいく（待たせない）
   fetchData();
 }
 
