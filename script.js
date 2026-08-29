@@ -178,7 +178,6 @@ function updateUI() {
   const dynTextDiv = document.getElementById('detail-dynamic-text');
   const mediaDiv = document.getElementById('detail-media');
   
-  // サーバー上の確実な正解数データを参照するよう修正
   let solvedCount = globalStatus.solved[playerName] || 0;
   let showDynamic = false;
 
@@ -193,6 +192,23 @@ function updateUI() {
       dynTextDiv.innerHTML = html;
       if (html) showDynamic = true;
     } 
+    // ⬇⬇ 今回追加する「replace_hint（時間でヒントが入れ替わる）」機能 ⬇⬇
+    else if (q.Config.type === 'replace_hint') {
+      const elapsedSec = Math.floor((now - new Date(q.Config.startTime)) / 1000);
+      let phaseIndex = 0; // 開始時刻までは0番目（最初のヒント）を表示
+      if (elapsedSec >= 0) {
+        phaseIndex = Math.floor(elapsedSec / q.Config.intervalSec);
+      }
+      if (phaseIndex >= q.Config.hints.length) {
+        phaseIndex = q.Config.hints.length - 1; // 最後のヒントに達したらそこで止める
+      }
+      
+      if (phaseIndex >= 0 && q.Config.hints[phaseIndex]) {
+        dynTextDiv.innerHTML = q.Config.hints[phaseIndex].replace(/\n/g, '<br>');
+        showDynamic = true;
+      }
+    }
+    // ⬆⬆ ここまで ⬆⬆
     else if (q.Config.type === 'solve_dependent') {
       let html = `<span style="color:#aaa; font-weight:normal;">現在のあなたの正解数: ${solvedCount}</span><br><br>`;
       q.Config.hints.forEach(hint => {
@@ -273,7 +289,6 @@ function updateUI() {
     if (msg) msg.innerText = "";
   }
 }
-
 async function submitAnswer() {
   const q = questionsData.find(item => item.ID === currentQuestionId);
   const btn = document.getElementById('submit-btn');
