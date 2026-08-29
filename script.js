@@ -289,6 +289,7 @@ function updateUI() {
     if (msg) msg.innerText = "";
   }
 }
+
 async function submitAnswer() {
   const q = questionsData.find(item => item.ID === currentQuestionId);
   const btn = document.getElementById('submit-btn');
@@ -329,7 +330,7 @@ async function submitAnswer() {
           });
           const resultFinal = await resFinal.json();
           
-          localStorage.setItem(`cleared_${currentQuestionId}`, "true"); // 復活
+          localStorage.setItem(`cleared_${currentQuestionId}`, "true"); 
           alert(resultFinal.isFirstBlood ? "1st正解です！おめでとうございます！" : "クリア！");
           showHomeScreen();
         } else {
@@ -341,15 +342,33 @@ async function submitAnswer() {
   } else {
     const answerStr = document.getElementById('answer-input').value.trim();
     if (!answerStr) return;
+
+    // ⬇⬇ 五十音順の前・後判定ギミックのみ追加 ⬇⬇
+    if (q.Config && q.Config.type === 'gojuon_high_low') {
+      const targetStr = q.Config.target;
+      
+      if (answerStr !== targetStr) {
+        const compareResult = answerStr.localeCompare(targetStr, 'ja');
+        let hintMsg = "";
+        if (compareResult < 0) {
+          hintMsg = `五十音順で「${answerStr}」より【後】です`;
+        } else if (compareResult > 0) {
+          hintMsg = `五十音順で「${answerStr}」より【前】です`;
+        }
+        handleMistake(q.ID, hintMsg);
+        return; 
+      }
+    }
+    // ⬆⬆ ここまで ⬆⬆
+
     btn.disabled = true;
-    
     try {
       const res = await fetch(GAS_URL, {
         method: "POST", body: JSON.stringify({ playerName, questionId: currentQuestionId, answer: answerStr })
       });
       const result = await res.json();
       if (result.isCorrect) {
-        localStorage.setItem(`cleared_${currentQuestionId}`, "true"); // 復活
+        localStorage.setItem(`cleared_${currentQuestionId}`, "true"); 
         alert(result.isFirstBlood ? "1st正解です！おめでとうございます！" : "正解です！");
         showHomeScreen();
       } else { handleMistake(q.ID); }
@@ -357,8 +376,13 @@ async function submitAnswer() {
   }
 }
 
-function handleMistake(id) {
-  alert("不正解...");
+// エラーメッセージにヒントを追加表示するための修正
+function handleMistake(id, customMsg) {
+  if (customMsg) {
+    alert("不正解...\n💡ヒント: " + customMsg);
+  } else {
+    alert("不正解...");
+  }
   localStorage.setItem(`mistake_${id}`, new Date().getTime());
   if (document.getElementById('answer-input')) document.getElementById('answer-input').value = '';
   if (document.getElementById('multi-single-input')) document.getElementById('multi-single-input').value = '';
