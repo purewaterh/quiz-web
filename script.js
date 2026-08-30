@@ -110,7 +110,6 @@ function openDetail(id) {
   const q = questionsData.find(item => item.ID === id);
   if (!q) return;
 
-  // 古いヒントが残らないよう、開いた瞬間に完全に初期化
   const dynTextDiv = document.getElementById('detail-dynamic-text');
   if (dynTextDiv) {
     dynTextDiv.style.display = 'none';
@@ -154,12 +153,20 @@ function openDetail(id) {
   }
 
   let qStat = globalStatus.questionStatus[q.ID];
-  if ((qStat && qStat.solvers.includes(playerName)) || localStorage.getItem(`cleared_${q.ID}`)) {
+  let isCleared = (qStat && qStat.solvers.includes(playerName)) || localStorage.getItem(`cleared_${q.ID}`);
+
+  // ⬇⬇ マルチ問題のみ、クリア後もボタンを残す処理 ⬇⬇
+  if (isCleared) {
     document.getElementById('detail-title').innerText += " 【クリア済】";
-    document.getElementById('submit-btn').style.display = 'none';
+    if (q.Config && q.Config.type === 'multi') {
+      document.getElementById('submit-btn').style.display = 'block'; // おまけ入力用
+    } else {
+      document.getElementById('submit-btn').style.display = 'none'; // 通常問題は消す
+    }
   } else {
     document.getElementById('submit-btn').style.display = 'block';
   }
+  // ⬆⬆ ここまで ⬆⬆
 
   showScreen('detail-screen');
   updateUI();
@@ -333,7 +340,11 @@ async function submitAnswer() {
         renderMultiProgress(q.ID, q.Config.required);
         document.getElementById('multi-single-input').value = '';
         
-        if (solvedGroups.length >= q.Config.required) {
+        const alreadyCleared = localStorage.getItem(`cleared_${currentQuestionId}`);
+
+        // ⬇⬇ クリア済みかどうかでアラートを変える処理 ⬇⬇
+        if (!alreadyCleared && solvedGroups.length >= q.Config.required) {
+          // 初回クリア（ノルマ達成）の瞬間
           const finalAns = solvedNames.join(',');
           const resFinal = await fetch(GAS_URL, {
             method: "POST", body: JSON.stringify({ playerName, questionId: currentQuestionId, answer: finalAns })
@@ -341,19 +352,25 @@ async function submitAnswer() {
           const resultFinal = await resFinal.json();
           
           localStorage.setItem(`cleared_${currentQuestionId}`, "true"); 
-          alert(resultFinal.isFirstBlood ? "1st正解です！おめでとうございます！" : "クリア！");
+          alert(resultFinal.isFirstBlood ? "1st正解です！おめでとうございます！\n(再度開くと残りの解答も探せます)" : "クリア！\n(再度開くと残りの解答も探せます)");
           showHomeScreen();
+        } else if (alreadyCleared) {
+           // おまけの追加入力時
+           alert("追加正解！お見事です！");
+           btn.disabled = false;
         } else {
+           // まだノルマに達していない時
            alert("正解！");
            btn.disabled = false;
         }
+        // ⬆⬆ ここまで ⬆⬆
+        
       } else { handleMistake(q.ID); }
     } catch (e) { alert("通信エラーが発生しました"); btn.disabled = false; }
   } else {
     const answerStr = document.getElementById('answer-input').value.trim();
     if (!answerStr) return;
 
-    // ⬇⬇ 五十音順の前・後判定ギミックのみ追加 ⬇⬇
     if (q.Config && q.Config.type === 'gojuon_high_low') {
       const targetStr = q.Config.target;
       
@@ -369,7 +386,6 @@ async function submitAnswer() {
         return; 
       }
     }
-    // ⬆⬆ ここまで ⬆⬆
 
     btn.disabled = true;
     try {
